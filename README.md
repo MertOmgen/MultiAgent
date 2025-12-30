@@ -6,8 +6,6 @@ This repository explores an **AutoGen-style multi-agent roadmap** and a practica
 
 ## AutoGen Multi‑Agent Roadmap (Detailed)
 
-> This section is restored from the previously detailed roadmap content (commit `b36b5c6c9bf470509d9763f992507d2eeb628f72`) and then extended with the current project stack and conventions.
-
 ### 1) Define the vision & constraints
 
 - **Goal**: a multi-agent workflow that can take a requirement, design a solution, generate code, test it, and iterate.
