@@ -1,0 +1,15 @@
+# AutoGen multi-agent framework
+pyautogen>=0.2.0
+
+# LLM integration
+ollama>=0.1.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# Logging and monitoring
+colorlog>=6.7.0
+
+# File handling
+pyyaml>=6.0.0
