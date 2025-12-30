@@ -46,6 +46,9 @@ outputs/qa/*
 outputs/chat_history/*
 !outputs/**/.gitkeep
 
+# Development notes
+dev_notes/
+
 # Logs
 *.log
 logs/

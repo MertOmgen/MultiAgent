@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.config.llm_config import AGENT_MODELS
 from app.orchestration.groupchat import SequentialWorkflow
+from app.orchestration.iterative_workflow import IterativeWorkflow
 
 # Load environment variables
 load_dotenv()
@@ -32,7 +33,8 @@ def main():
     for agent_role, model in AGENT_MODELS.items():
         print(f"  • {agent_role.capitalize():10s} → {model}")
     
-    print("\n🔄 Workflow: Designer → Backend → Frontend → QA")
+    print("\n🔄 Workflow Mode: ITERATIVE (with QA feedback loops)")
+    print("   Max Iterations: 3")
     print("=" * 60)
     
     # Example requirement
@@ -49,8 +51,8 @@ def main():
     """
     
     try:
-        # Initialize workflow
-        workflow = SequentialWorkflow()
+        # Initialize iterative workflow (with QA feedback loops)
+        workflow = IterativeWorkflow(max_iterations=3)
         
         # Run the multi-agent workflow
         result = workflow.run(requirement, max_rounds=12)
@@ -61,6 +63,7 @@ def main():
         print("=" * 60)
         print(f"Status: {result.get('status', 'unknown')}")
         print(f"Run ID: {result.get('run_id', 'N/A')}")
+        print(f"Iterations: {result.get('iterations', 'N/A')}")
         if 'chat_file' in result:
             print(f"Chat History: {result['chat_file']}")
         print("\n📁 Check outputs/ folder for generated artifacts")

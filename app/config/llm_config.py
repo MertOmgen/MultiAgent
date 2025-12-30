@@ -10,7 +10,7 @@ AGENT_MODELS = {
     "designer": os.getenv("OLLAMA_MODEL_DESIGNER", "llama3.1:8b"),
     "backend": os.getenv("OLLAMA_MODEL_BACKEND", "qwen2.5-coder:7b"),
     "frontend": os.getenv("OLLAMA_MODEL_FRONTEND", "qwen2.5-coder:7b"),
-    "qa": os.getenv("OLLAMA_MODEL_QA", "deepseek-coder:6.7b"),
+    "qa": os.getenv("OLLAMA_MODEL_QA", "qwen2.5-coder:7b"),  # Changed from deepseek-coder:6.7b for better FILE: format following
 }
 
 # Agent-specific temperature settings
