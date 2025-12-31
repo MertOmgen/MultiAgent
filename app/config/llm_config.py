@@ -1,51 +1,62 @@
-"""LLM Configuration for Ollama."""
+"""LLM Configuration for Ollama with new AutoGen API."""
 
 import os
 from typing import Dict, Any
+from autogen_ext.models.ollama import OllamaChatCompletionClient
 
 
-def get_llm_config() -> Dict[str, Any]:
+# Agent-specific model mapping
+AGENT_MODELS = {
+    "designer": os.getenv("OLLAMA_MODEL_DESIGNER", "llama3.1:8b"),
+    "backend": os.getenv("OLLAMA_MODEL_BACKEND", "qwen2.5-coder:7b"),
+    "frontend": os.getenv("OLLAMA_MODEL_FRONTEND", "qwen2.5-coder:7b"),
+    "qa": os.getenv("OLLAMA_MODEL_QA", "qwen2.5-coder:7b"),  # Changed from deepseek-coder:6.7b for better FILE: format following
+}
+
+# Agent-specific temperature settings
+AGENT_TEMPERATURES = {
+    "designer": 0.7,  # More creative for architecture decisions
+    "backend": 0.5,   # Balanced for code implementation
+    "frontend": 0.5,  # Balanced for code implementation
+    "qa": 0.3,        # More deterministic for testing
+}
+
+
+def create_model_client(role: str) -> OllamaChatCompletionClient:
     """
-    Get LLM configuration for Ollama.
-    
-    Returns:
-        Dictionary with Ollama configuration for AutoGen.
-    """
-    return {
-        "config_list": [
-            {
-                "model": os.getenv("OLLAMA_MODEL", "llama3.1"),
-                "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-                "api_key": "ollama",  # Ollama doesn't require a real key
-            }
-        ],
-        "timeout": int(os.getenv("TIMEOUT", "300")),
-        "cache_seed": None,  # Disable caching for reproducibility
-    }
-
-
-def get_agent_config(role: str) -> Dict[str, Any]:
-    """
-    Get agent-specific configuration.
+    Create Ollama model client for a specific agent role.
     
     Args:
         role: Agent role (designer, backend, frontend, qa)
         
     Returns:
-        Agent configuration dictionary.
+        Configured OllamaChatCompletionClient
     """
-    base_config = get_llm_config()
+    model = AGENT_MODELS.get(role, "llama3.1:8b")
+    temperature = AGENT_TEMPERATURES.get(role, 0.5)
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     
-    # Role-specific settings can be added here
-    role_configs = {
-        "designer": {"temperature": 0.7},
-        "backend": {"temperature": 0.5},
-        "frontend": {"temperature": 0.5},
-        "qa": {"temperature": 0.3},
-    }
+    # Create Ollama client with the new API
+    client = OllamaChatCompletionClient(
+        model=model,
+        base_url=base_url,
+        # Note: Temperature and other parameters are set during inference in new API
+    )
     
-    config = base_config.copy()
-    if role in role_configs:
-        config.update(role_configs[role])
+    return client
 
-    return config
+
+def get_model_params(role: str) -> Dict[str, Any]:
+    """
+    Get model generation parameters for a specific role.
+    
+    Args:
+        role: Agent role (designer, backend, frontend, qa)
+        
+    Returns:
+        Dictionary with generation parameters
+    """
+    return {
+        "temperature": AGENT_TEMPERATURES.get(role, 0.5),
+        "max_tokens": 4096,
+    }

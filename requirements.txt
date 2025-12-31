@@ -1,8 +1,6 @@
-# AutoGen multi-agent framework
-pyautogen>=0.2.0
-
-# LLM integration
-ollama>=0.1.0
+# AutoGen AgentChat (new API)
+autogen-agentchat>=0.7.0
+autogen-ext[ollama]>=0.7.0
 
 # Utilities
 python-dotenv>=1.0.0
