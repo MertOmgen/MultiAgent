@@ -30,14 +30,21 @@ class ArtifactSaver:
         for agent_dir in self.AGENT_DIRS.values():
             (self.base_dir / agent_dir).mkdir(parents=True, exist_ok=True)
     
-    def save_agent_artifacts(self, agent_name: str, content: str, run_id: str) -> List[Path]:
+    def save_agent_artifacts(
+        self, 
+        agent_name: str, 
+        content: str, 
+        run_id: str = None,
+        base_dir: str = None
+    ) -> List[Path]:
         """
         Parse agent output and save artifacts to appropriate directory.
         
         Args:
             agent_name: Name of the agent (Designer, Backend, Frontend, QA)
             content: Agent's output content
-            run_id: Run identifier for organizing outputs
+            run_id: Run identifier for organizing outputs (optional for project mode)
+            base_dir: Custom base directory (for project mode)
             
         Returns:
             List of saved file paths
@@ -50,7 +57,17 @@ class ArtifactSaver:
             print(f"⚠️  Unknown agent: {agent_name}, skipping artifact save")
             return saved_files
         
-        output_dir = self.base_dir / agent_dir / run_id
+        # Determine output directory
+        if base_dir:
+            # Project mode: save directly to project/{agent}/ without run_id
+            output_dir = Path(base_dir) / agent_dir
+        elif run_id:
+            # Standalone mode: save to outputs/{agent}/{run_id}/
+            output_dir = self.base_dir / agent_dir / run_id
+        else:
+            # Fallback: save to outputs/{agent}/
+            output_dir = self.base_dir / agent_dir
+        
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # For QA agent, try to auto-convert code blocks to FILE: format
@@ -71,7 +88,7 @@ class ArtifactSaver:
         default_path = output_dir / default_filename
         
         # Determine if this is an iteration (check if run_id contains '_iter')
-        is_iteration = '_iter' in run_id
+        is_iteration = run_id and '_iter' in run_id
         
         if is_iteration and default_path.exists():
             # Append to existing file with iteration marker
@@ -81,11 +98,11 @@ class ArtifactSaver:
                 f.write(f"# ITERATION {iteration_num}\n")
                 f.write(f"{'=' * 80}\n\n")
                 f.write(content)
-            print(f"  ➕ Appended to: {default_path.relative_to(self.base_dir)} (iteration {iteration_num})")
+            print(f"  ➕ Appended to: {default_path.relative_to(self.base_dir if not base_dir else Path(base_dir))} (iteration {iteration_num})")
         else:
             # First iteration or new run - create/overwrite file
             default_path.write_text(content, encoding='utf-8')
-            print(f"  💾 Saved: {default_path.relative_to(self.base_dir)}")
+            print(f"  💾 Saved: {default_path.relative_to(self.base_dir if not base_dir else Path(base_dir))}")
         
         if default_path not in saved_files:
             saved_files.append(default_path)
