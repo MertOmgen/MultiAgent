@@ -2,9 +2,10 @@
 
 import asyncio
 import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.conditions import MaxMessageTermination, TextMentionTermination
@@ -16,19 +17,15 @@ from app.agents.qa import create_qa_agent
 from app.orchestration.artifact_saver import ArtifactSaver
 from app.orchestration.npm_installer import NpmInstaller
 from app.orchestration.groupchat import save_chat_history
-from app.orchestration.project_manager import ProjectManager, Project
-from app.orchestration.git_manager import GitManager
 
 
 class IterativeWorkflow:
     """
     Iterative workflow with QA feedback loops:
     Designer → Backend → Frontend → QA → (if issues) → Backend/Frontend → QA → ...
-    
-    Supports both project-based (continuous development) and standalone modes.
     """
     
-    def __init__(self, outputs_dir: str = "./outputs", max_iterations: int = 3):
+    def __init__(self, outputs_dir: str = "./outputs", max_iterations: int = 3, project_name: str = "default_project"):
         """
         Initialize the iterative workflow.
         
@@ -36,6 +33,7 @@ class IterativeWorkflow:
             outputs_dir: Base directory for outputs
             max_iterations: Maximum number of QA feedback iterations
         """
+        self.project_name = project_name
         self.outputs_dir = Path(outputs_dir)
         self.outputs_dir.mkdir(parents=True, exist_ok=True)
         self.max_iterations = max_iterations
@@ -43,9 +41,6 @@ class IterativeWorkflow:
         # Initialize utilities
         self.artifact_saver = ArtifactSaver(outputs_dir)
         self.npm_installer = NpmInstaller(str(self.outputs_dir / "frontend"))
-        
-        # Initialize project manager
-        self.project_manager = ProjectManager(outputs_dir)
         
         # Create agents
         print("Initializing agents...")
@@ -91,65 +86,18 @@ class IterativeWorkflow:
             "needs_frontend_fix": frontend_fixes,
         }
     
-    async def run_async(
-        self, 
-        requirement: str, 
-        max_rounds: int = 20,
-        project_name: Optional[str] = None,
-        task_description: Optional[str] = None
-    ) -> Dict[str, Any]:
+    async def run_async(self, requirement: str, max_rounds: int = 20) -> Dict[str, Any]:
         """
         Run the iterative workflow asynchronously.
         
         Args:
             requirement: User requirement/request
             max_rounds: Maximum conversation rounds per iteration
-            project_name: Optional project name for continuous development
-            task_description: Description of this specific task/iteration
             
         Returns:
             Dictionary with results and metadata
         """
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Project-based or standalone mode
-        project = None
-        git_manager = None
-        
-        if project_name:
-            # Project mode: Load existing context
-            print(f"\n{'=' * 60}")
-            print(f"📁 Project Mode: {project_name}")
-            print(f"{'=' * 60}")
-            
-            project = self.project_manager.get_or_create_project(project_name)
-            git_manager = GitManager(project.project_dir)
-            
-            # Initialize Git if needed
-            if git_manager.check_available():
-                git_manager.init_repo()
-            else:
-                print("   ⚠️  Git not available. Skipping version control.")
-                git_manager = None
-            
-            # Load existing project context
-            if project.file_tree or project.important_files:
-                print(f"\n📚 Loading existing project context...")
-                existing_context = self.project_manager.load_project_context(project_name)
-                print(f"   ✅ Loaded {len(project.important_files)} files")
-                
-                # Add context to requirement
-                requirement = f"""{requirement}
-
-=== EXISTING PROJECT CONTEXT ===
-
-{existing_context}
-
-=== END EXISTING CONTEXT ===
-
-Build upon the existing code above. Update or extend existing files as needed."""
-            else:
-                print(f"   ℹ️  New project - no existing context")
         
         print(f"\n{'=' * 60}")
         print(f"Starting iterative workflow: {run_id}")
@@ -157,6 +105,11 @@ Build upon the existing code above. Update or extend existing files as needed.""
         print(f"{'=' * 60}")
         print(f"\n📋 Requirement:\n{requirement}\n")
         
+        # Pre-create scaffolds for iteration 1 so agents have a project root
+        iteration_dir = f"{run_id}_iter1"
+        self._ensure_backend_scaffold(iteration_dir)
+        self._ensure_frontend_scaffold(iteration_dir)
+
         iteration = 0
         all_messages = []
         
@@ -193,7 +146,13 @@ Build upon the existing code above. Update or extend existing files as needed.""
                     backend_output = next((msg.content for msg in backend_result.messages if hasattr(msg, 'source') and msg.source == 'Backend'), "")
                     frontend_output = next((msg.content for msg in frontend_result.messages if hasattr(msg, 'source') and msg.source == 'Frontend'), "")
                     
+                    frontend_path = self.outputs_dir / "frontend" / f"{run_id}_iter{iteration}"
+                    backend_path = self.outputs_dir / "backend" / f"{run_id}_iter{iteration}"
+
                     qa_task = f"""Review the following outputs and create comprehensive test plans with test files:
+
+Frontend project path: {frontend_path}
+Backend project path: {backend_path}
 
 === DESIGNER OUTPUT ===
 {designer_output}
@@ -262,16 +221,6 @@ Create test plans and test code files for this implementation."""
                 
                 iteration_messages = all_messages[start_idx:]
                 
-                # Determine output directory based on mode
-                if project:
-                    # Project mode: Save to project directory
-                    output_base = project.project_dir
-                    iteration_dir = None  # Don't use iteration subdirectory for projects
-                else:
-                    # Standalone mode: Use run_id based directory
-                    output_base = self.artifact_saver.base_dir
-                    iteration_dir = f"{run_id}_iter{iteration}"
-                
                 for msg in iteration_messages:
                     if hasattr(msg, 'source') and hasattr(msg, 'content'):
                         agent_name = msg.source
@@ -305,25 +254,17 @@ Create test plans and test code files for this implementation."""
                                     print("  ⚠️  WARNING: Frontend agent appears to be generating backend files!")
                                     print("  This violates role boundaries. Check prompts and iteration routing.")
                             
-                            if project:
-                                # Project mode: Save directly to project folders (backend/, frontend/, tests/)
-                                self.artifact_saver.save_agent_artifacts(standardized_name, content, iteration_dir, base_dir=str(project.project_dir))
-                            else:
-                                # Standalone mode: Save to outputs/{agent}/{run_id}/
-                                self.artifact_saver.save_agent_artifacts(standardized_name, content, iteration_dir)
+                            iteration_dir = f"{run_id}_iter{iteration}"
+                            self.artifact_saver.save_agent_artifacts(standardized_name, content, iteration_dir)
                             
                             # Auto-install npm dependencies if Frontend generated package.json
                             if standardized_name == "Frontend":
-                                if project:
-                                    frontend_dir = project.project_dir / "frontend"
-                                else:
-                                    # artifact_saver saves to outputs/frontend/{iteration_dir}
-                                    frontend_dir = self.artifact_saver.base_dir / "frontend" / iteration_dir
-                                
+                                # artifact_saver saves to outputs/frontend/{iteration_dir}
+                                frontend_dir = self.artifact_saver.base_dir / "frontend" / iteration_dir
                                 package_json = frontend_dir / "package.json"
                                 
                                 # Check if package.json exists (might be in outputs/frontend/ or just frontend/)
-                                if not package_json.exists() and not project:
+                                if not package_json.exists():
                                     # Try without outputs prefix
                                     alt_frontend_dir = self.outputs_dir / "frontend" / iteration_dir
                                     alt_package_json = alt_frontend_dir / "package.json"
@@ -340,40 +281,13 @@ Create test plans and test code files for this implementation."""
                                         self.npm_installer.install_dependencies_sync(frontend_dir)
                                     else:
                                         print("  ⚠️  npm not found. Skipping dependency installation.")
-                
-                # Update project metadata if in project mode
-                if project and git_manager:
-                    # Refresh file tree and important files
-                    self.project_manager.refresh_project(project_name)
-                    
-                    # Add task to history
-                    if task_description:
-                        self.project_manager.add_task_to_history(project_name, task_description, run_id)
-                    
-                    # Git commit
-                    commit_msg = task_description or f"Iteration {iteration}: {requirement[:50]}"
-                    git_manager.commit(commit_msg)
             
             # Save complete chat history
-            if project:
-                chat_file = project.project_dir / "chat_history" / f"{run_id}.md"
-                chat_file.parent.mkdir(exist_ok=True)
-                # Manual save since we have custom path
-                import json
-                chat_content = "# Chat History\n\n"
-                for msg in all_messages:
-                    if hasattr(msg, 'source') and hasattr(msg, 'content'):
-                        chat_content += f"## {msg.source}\n\n{msg.content}\n\n"
-                chat_file.write_text(chat_content, encoding='utf-8')
-            else:
-                chat_file = save_chat_history(all_messages, f"{run_id}_complete")
+            chat_file = save_chat_history(all_messages, f"{run_id}_complete")
             
             print(f"\n{'=' * 60}")
             print(f"✅ Iterative workflow completed: {run_id}")
             print(f"   Total iterations: {iteration}")
-            if project:
-                print(f"📁 Project: {project.name}")
-                print(f"   Location: {project.project_dir}")
             print(f"💾 Complete chat history: {chat_file}")
             print(f"{'=' * 60}")
             
@@ -383,7 +297,6 @@ Create test plans and test code files for this implementation."""
                 "iterations": iteration,
                 "messages": all_messages,
                 "chat_file": str(chat_file),
-                "project_name": project_name if project else None,
             }
             
         except Exception as e:
@@ -397,23 +310,66 @@ Create test plans and test code files for this implementation."""
                 "iterations": iteration,
             }
     
-    def run(
-        self, 
-        requirement: str, 
-        max_rounds: int = 20,
-        project_name: Optional[str] = None,
-        task_description: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def run(self, requirement: str, max_rounds: int = 20) -> Dict[str, Any]:
         """
         Run the iterative workflow (synchronous wrapper).
         
         Args:
             requirement: User requirement/request
             max_rounds: Maximum conversation rounds per iteration
-            project_name: Optional project name for continuous development
-            task_description: Description of this specific task/iteration
             
         Returns:
             Dictionary with results and metadata
         """
-        return asyncio.run(self.run_async(requirement, max_rounds, project_name, task_description))
+        return asyncio.run(self.run_async(requirement, max_rounds))
+
+    # ------------------------------------------------------------------
+    # Scaffolding helpers
+    # ------------------------------------------------------------------
+    def _ensure_frontend_scaffold(self, iteration_dir: str) -> None:
+        """Create a Vite scaffold if none exists for this iteration."""
+        frontend_dir = self.outputs_dir / "frontend" / iteration_dir
+        frontend_dir.mkdir(parents=True, exist_ok=True)
+
+        package_json = frontend_dir / "package.json"
+        if package_json.exists():
+            return
+
+        print(f"🔧 Creating Vite scaffold in {frontend_dir}")
+        try:
+            subprocess.run(
+                ["npm", "create", "vite@latest", ".", "--", "--template", "vue-ts"],
+                cwd=str(frontend_dir),
+                check=True,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if self.npm_installer.check_npm_available():
+                self.npm_installer.install_dependencies_sync(frontend_dir)
+        except Exception as e:
+            print(f"  ⚠️  Failed to scaffold Vite project: {e}")
+
+    def _ensure_backend_scaffold(self, iteration_dir: str) -> None:
+        """Create a .NET Web API scaffold if none exists for this iteration."""
+        backend_dir = self.outputs_dir / "backend" / iteration_dir
+        backend_dir.mkdir(parents=True, exist_ok=True)
+
+        csproj_exists = any(backend_dir.glob("*.csproj"))
+        if csproj_exists:
+            return
+
+        print(f"🔧 Creating .NET Web API scaffold in {backend_dir}")
+        try:
+            subprocess.run(
+                ["dotnet", "new", "webapi", "--force"],
+                cwd=str(backend_dir),
+                check=True,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except Exception as e:
+            print(f"  ⚠️  Failed to scaffold .NET project: {e}")

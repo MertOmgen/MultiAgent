@@ -1,17 +1,16 @@
-"""LLM Configuration for Ollama with new AutoGen API."""
+"""LLM configuration with provider switching (OpenAI or Ollama)."""
 
 import os
 from typing import Dict, Any
+
+from dotenv import load_dotenv
 from autogen_ext.models.ollama import OllamaChatCompletionClient
+from autogen_ext.models.openai import OpenAIChatCompletionClient
 
 
-# Agent-specific model mapping
-AGENT_MODELS = {
-    "designer": os.getenv("OLLAMA_MODEL_DESIGNER", "llama3.1:8b"),
-    "backend": os.getenv("OLLAMA_MODEL_BACKEND", "qwen2.5-coder:7b"),
-    "frontend": os.getenv("OLLAMA_MODEL_FRONTEND", "qwen2.5-coder:7b"),
-    "qa": os.getenv("OLLAMA_MODEL_QA", "qwen2.5-coder:7b"),  # Changed from deepseek-coder:6.7b for better FILE: format following
-}
+# Ensure .env is loaded before reading env vars for model selection
+load_dotenv()
+
 
 # Agent-specific temperature settings
 AGENT_TEMPERATURES = {
@@ -22,40 +21,53 @@ AGENT_TEMPERATURES = {
 }
 
 
-def create_model_client(role: str) -> OllamaChatCompletionClient:
-    """
-    Create Ollama model client for a specific agent role.
-    
-    Args:
-        role: Agent role (designer, backend, frontend, qa)
-        
-    Returns:
-        Configured OllamaChatCompletionClient
-    """
-    model = AGENT_MODELS.get(role, "llama3.1:8b")
-    temperature = AGENT_TEMPERATURES.get(role, 0.5)
+def _is_openai() -> bool:
+    return os.getenv("LLM_PROVIDER", "ollama").lower() == "openai"
+
+
+def get_provider_settings() -> Dict[str, str]:
+    """Return provider name and base URL resolved from env."""
+    if _is_openai():
+        return {
+            "provider": "openai",
+            "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        }
+    return {
+        "provider": "ollama",
+        "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+    }
+
+
+def _agent_model(role: str) -> str:
+    if _is_openai():
+        return os.getenv(f"OPENAI_MODEL_{role.upper()}", "gpt-4.1")
+    return os.getenv(f"OLLAMA_MODEL_{role.upper()}", "qwen2.5-coder:7b")
+
+
+def get_agent_models() -> Dict[str, str]:
+    """Return mapping of agent role to configured model."""
+    return {role: _agent_model(role) for role in AGENT_TEMPERATURES.keys()}
+
+
+# Snapshot at import for quick access (used by main entrypoints)
+AGENT_MODELS = get_agent_models()
+
+
+def create_model_client(role: str):
+    """Create model client for a specific agent role based on provider."""
+    model = _agent_model(role)
+    if _is_openai():
+        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        api_key = os.getenv("OPENAI_API_KEY")
+        return OpenAIChatCompletionClient(model=model, base_url=base_url, api_key=api_key)
+
+    # Ollama fallback
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    
-    # Create Ollama client with the new API
-    client = OllamaChatCompletionClient(
-        model=model,
-        base_url=base_url,
-        # Note: Temperature and other parameters are set during inference in new API
-    )
-    
-    return client
+    return OllamaChatCompletionClient(model=model, base_url=base_url)
 
 
 def get_model_params(role: str) -> Dict[str, Any]:
-    """
-    Get model generation parameters for a specific role.
-    
-    Args:
-        role: Agent role (designer, backend, frontend, qa)
-        
-    Returns:
-        Dictionary with generation parameters
-    """
+    """Get generation parameters for a specific role."""
     return {
         "temperature": AGENT_TEMPERATURES.get(role, 0.5),
         "max_tokens": 4096,
