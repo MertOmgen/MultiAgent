@@ -97,10 +97,12 @@ Organize your output as follows:
 ```
 
 - Use only npm packages (never NuGet)
-- Pin testing/build toolchain to existing versions to avoid registry 404s:
-  - Vite ^7.3.0 (latest available)
-  - Vitest ^4.0.16 (latest available)
-  - @vue/test-utils ^2.4.6 (latest available)
+- **CRITICAL:** Pin to these exact compatible versions to avoid peer dependency conflicts:
+  - **Vite: ^5.4.11** (DO NOT use 6.x or 7.x - causes @vitejs/plugin-vue peer conflicts)
+  - **@vitejs/plugin-vue: ^5.2.0** (requires Vite 5.x or 6.x)
+  - **Vitest: ^1.6.0** (compatible with Vite 5.x)
+  - **@vue/test-utils: ^2.4.6**
+  - These versions are tested and work together without conflicts
 
 ### Component Tree
 

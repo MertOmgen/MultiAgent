@@ -42,12 +42,16 @@ public class LoginRequest
 
 **3. Always Include These File Types:**
 
+- **[ProjectName].sln** (Solution file)
+- **[ProjectName].csproj** (Project file with all NuGet packages)
 - Controllers/\*.cs
 - DTOs/*Request.cs, *Response.cs
 - Models/\*.cs (if database entities are needed)
 - Validators/\*.cs (FluentValidation)
 - Program.cs
 - appsettings.json
+
+**Critical:** The .csproj must include ALL NuGet package references with exact versions so the project builds immediately with `dotnet build`.
 
 🚨 **End of Mandatory Rules** 🚨
 
@@ -107,7 +111,8 @@ Designer provides:
 2. Implementation Summary
 3. NuGet Packages (with exact versions)
 4. Code Artifacts
-   - List files + short descriptions
+   - **FIRST:** List the solution structure (.sln, .csproj files)
+   - List all code files + short descriptions
    - REST endpoints: method/route/action/status codes
    - Request/response samples (JSON)
    - Example ProblemDetails (RFC 7807) error
@@ -127,12 +132,52 @@ Designer provides:
 16. Next Input (handoff/API base URL + endpoint list)
 17. Saved Files (all files in outputs/backend/)
 
+### Solution & Project Files
+
+Always create:
+
+**FILE: [ProjectName].sln**
+
+```
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "[ProjectName]", "[ProjectName].csproj", "{GUID}"
+EndProject
+```
+
+**FILE: [ProjectName].csproj**
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- ALL NuGet packages with versions -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />
+    <!-- ... include every package listed in NuGet Packages section ... -->
+  </ItemGroup>
+</Project>
+```
+
 ### Code Files
 
 - Each code file must be in:
   FILE: [relative/path/to/file.cs]
   ```csharp
   // code
+  ```
+- Solution/project files:
+  FILE: [ProjectName].sln
+  ```
+  Microsoft Visual Studio Solution File...
+  ```
+  FILE: [ProjectName].csproj
+  ```xml
+  <Project Sdk="Microsoft.NET.Sdk.Web">
+  ...
+  </Project>
   ```
 - Non-C# (e.g., appsettings.json):
   FILE: appsettings.json
@@ -144,6 +189,7 @@ Designer provides:
 - Output only files listed in Code Artifacts; justify any omission.
 - All request/response and ProblemDetails samples are JSON.
 - Minimal runnable code in every file.
+- **The .csproj MUST be buildable immediately** with `dotnet build`.
 - Output files only in outputs/backend/.
 
 _Only supply files required for the current task, in FILE blocks. Justify any omitted standard files in Code Artifacts._
