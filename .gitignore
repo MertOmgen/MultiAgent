@@ -49,6 +49,9 @@ outputs/chat_history/*
 # Development notes
 dev_notes/
 
+# Output files
+outputs/
+
 # Logs
 *.log
 logs/
