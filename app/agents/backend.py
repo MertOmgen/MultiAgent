@@ -16,8 +16,7 @@ def create_backend_agent(work_dir: str = "./outputs/backend") -> AssistantAgent:
     Returns:
         Configured AssistantAgent for backend implementation
     """
-    # Ensure work directory exists
-    Path(work_dir).mkdir(parents=True, exist_ok=True)
+    # Work directory will be created on-demand when saving artifacts
     
     # Load system prompt
     system_message = load_prompt("backend")

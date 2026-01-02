@@ -16,8 +16,7 @@ def create_frontend_agent(work_dir: str = "./outputs/frontend") -> AssistantAgen
     Returns:
         Configured AssistantAgent for frontend implementation
     """
-    # Ensure work directory exists
-    Path(work_dir).mkdir(parents=True, exist_ok=True)
+    # Work directory will be created on-demand when saving artifacts
     
     # Load system prompt
     system_message = load_prompt("frontend")
