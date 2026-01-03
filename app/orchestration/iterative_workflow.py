@@ -214,6 +214,8 @@ class IterativeWorkflow:
                         cwd=str(backend_dir),
                         capture_output=True,
                         text=True,
+                        encoding='utf-8',
+                        errors='replace',
                         timeout=60,
                         shell=is_windows  # Use shell on Windows to find dotnet
                     )
@@ -250,7 +252,9 @@ class IterativeWorkflow:
                         [npm_cmd, "run", "build"],
                         cwd=str(frontend_dir),
                         capture_output=True,
-                        text=True,
+                        text=True,                        
+                        encoding='utf-8',
+                        errors='replace',                        
                         timeout=120,
                         shell=is_windows  # Use shell on Windows
                     )
@@ -293,6 +297,8 @@ class IterativeWorkflow:
                     cwd=str(backend_dir),
                     capture_output=True,
                     text=True,
+                    encoding='utf-8',
+                    errors='replace',
                     timeout=60,
                     shell=is_windows
                 )
@@ -374,6 +380,8 @@ Fix the errors and regenerate ALL files using FILE: format."""
                     cwd=str(frontend_dir),
                     capture_output=True,
                     text=True,
+                    encoding='utf-8',
+                    errors='replace',
                     timeout=120,
                     shell=is_windows
                 )

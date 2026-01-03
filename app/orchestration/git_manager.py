@@ -28,6 +28,8 @@ class GitManager:
                 cwd=str(self.project_dir),
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=10,
                 shell=True
             )
@@ -103,6 +105,8 @@ coverage/
                     cwd=str(self.project_dir),
                     capture_output=True,
                     text=True,
+                    encoding='utf-8',
+                    errors='replace',
                     timeout=30,
                     shell=True
                 )
@@ -117,6 +121,8 @@ coverage/
                 cwd=str(self.project_dir),
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=30,
                 shell=True
             )
@@ -158,6 +164,8 @@ coverage/
                 cwd=str(self.project_dir),
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=10,
                 shell=True
             )
@@ -177,6 +185,8 @@ coverage/
                 cwd=str(self.project_dir),
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=10,
                 shell=True
             )
@@ -200,6 +210,8 @@ coverage/
                 cwd=str(self.project_dir),
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=10,
                 shell=True
             )
@@ -226,6 +238,8 @@ coverage/
                 cwd=str(self.project_dir),
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=10,
                 shell=True
             )
@@ -254,6 +268,8 @@ coverage/
                 cwd=str(self.project_dir),
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=10,
                 shell=True
             )
@@ -287,6 +303,8 @@ coverage/
                 cwd=str(self.project_dir),
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=10,
                 shell=True
             )
@@ -330,6 +348,8 @@ coverage/
                 ["git", "--version"],
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=5,
                 shell=True
             )
