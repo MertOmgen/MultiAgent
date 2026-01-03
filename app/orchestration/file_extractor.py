@@ -72,6 +72,14 @@ def extract_files_from_content(content: str) -> List[ExtractedFile]:
                 filepath = match.group(1).strip()
         
         if filepath:
+            # Normalize path: remove agent directory prefix if present
+            # FILE: frontend/src/App.vue -> src/App.vue
+            # FILE: backend/Program.cs -> Program.cs
+            for prefix in ['frontend/', 'backend/', 'design/', 'qa/']:
+                if filepath.startswith(prefix):
+                    filepath = filepath[len(prefix):]
+                    break
+            
             # Look for code block start
             i += 1
             language = None
@@ -135,15 +143,17 @@ def save_extracted_files(files: List[ExtractedFile], output_dir: Path) -> List[P
         List of saved file paths
     """
     saved = []
-    seen_names = set()
+    seen_paths = set()  # Track full paths, not just filenames
     
     for file in files:
-        # Check for duplicates
-        filename = Path(file.path).name
-        if filename in seen_names:
+        # Normalize path for comparison
+        normalized_path = file.path.lower().replace('\\', '/')
+        
+        # Check for exact duplicates
+        if normalized_path in seen_paths:
             print(f"  ⚠️  Skipping duplicate: {file.path}")
             continue
-        seen_names.add(filename)
+        seen_paths.add(normalized_path)
         
         # Create file
         file_path = output_dir / file.path

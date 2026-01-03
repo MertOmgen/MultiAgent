@@ -162,11 +162,7 @@ class ProjectManager:
         """Create new project."""
         project_dir.mkdir(parents=True, exist_ok=True)
         
-        # Create project structure
-        (project_dir / "backend").mkdir(exist_ok=True)
-        (project_dir / "frontend").mkdir(exist_ok=True)
-        (project_dir / "qa").mkdir(exist_ok=True)
-        (project_dir / "design").mkdir(exist_ok=True)
+        # Subdirectories will be created on-demand when agents save files
         
         metadata = {
             "name": project_name,

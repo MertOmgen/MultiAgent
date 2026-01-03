@@ -11,6 +11,8 @@ Key improvements:
 """
 
 import asyncio
+import subprocess
+import platform
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -24,6 +26,8 @@ from app.orchestration.artifact_saver import ArtifactSaver
 from app.orchestration.npm_installer import NpmInstaller
 from app.orchestration.project_manager import ProjectManager
 from app.orchestration.git_manager import GitManager
+from app.utils.cost_tracker import CostTracker
+from app.config.llm_config import get_agent_models, get_provider_settings
 
 
 
@@ -71,6 +75,11 @@ class IterativeWorkflow:
         self.artifact_saver = ArtifactSaver(outputs_dir)
         self.npm_installer = NpmInstaller(str(self.outputs_dir / "frontend"))
         self.project_manager = ProjectManager(outputs_dir)
+        self.cost_tracker = None  # Initialized per run
+        
+        # Get provider and model info for cost tracking
+        self.provider_info = get_provider_settings()
+        self.agent_models = get_agent_models()
         
         # Create agents (lazy - only when needed)
         self._agents = {}
@@ -103,7 +112,7 @@ class IterativeWorkflow:
         
         return feedback
     
-    async def _run_agent(self, agent_name: str, task: str) -> Dict[str, Any]:
+    async def _run_agent(self, agent_name: str, task: str, iteration: int = 1, attempt: int = 1) -> Dict[str, Any]:
         """Run a single agent and return its output."""
         agent = self._get_agent(agent_name)
         if not agent:
@@ -121,6 +130,34 @@ class IterativeWorkflow:
             if hasattr(msg, 'source') and hasattr(msg, 'content'):
                 if agent_name in str(msg.source).lower() and msg.content:
                     content = msg.content
+        
+        # Extract token usage if available and record cost
+        if self.cost_tracker:
+            prompt_tokens = 0
+            completion_tokens = 0
+            
+            # Try to extract usage from response
+            # AutoGen may provide usage in different places depending on the model client
+            if hasattr(result, 'usage'):
+                prompt_tokens = getattr(result.usage, 'prompt_tokens', 0)
+                completion_tokens = getattr(result.usage, 'completion_tokens', 0)
+            elif result.messages and hasattr(result.messages[-1], 'usage'):
+                usage = result.messages[-1].usage
+                prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+                completion_tokens = getattr(usage, 'completion_tokens', 0)
+            
+            # Record usage
+            model = self.agent_models.get(agent_name, "unknown")
+            provider = self.provider_info['provider']
+            self.cost_tracker.record_usage(
+                agent_name=agent_name,
+                model=model,
+                provider=provider,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                iteration=iteration,
+                attempt=attempt
+            )
         
         return {
             "messages": result.messages,
@@ -157,6 +194,245 @@ class IterativeWorkflow:
                 self.npm_installer.install_dependencies_sync(frontend_dir)
             else:
                 print("  ⚠️  npm not found. Run 'npm install' manually.")
+    
+    def _validate_builds(self, output_dir: Path) -> bool:
+        """Validate backend and frontend builds before committing."""
+        all_valid = True
+        is_windows = platform.system() == "Windows"
+        
+        # Validate backend build
+        backend_dir = output_dir / "backend"
+        if backend_dir.exists():
+            sln_files = list(backend_dir.glob("*.sln"))
+            csproj_files = list(backend_dir.glob("**/*.csproj"))
+            
+            if sln_files:
+                print("\n🔨 Validating backend build...")
+                try:
+                    result = subprocess.run(
+                        ["dotnet", "build", str(sln_files[0]), "--nologo"],
+                        cwd=str(backend_dir),
+                        capture_output=True,
+                        text=True,
+                        encoding='utf-8',
+                        errors='replace',
+                        timeout=60,
+                        shell=is_windows  # Use shell on Windows to find dotnet
+                    )
+                    if result.returncode == 0:
+                        print("  ✅ Backend build succeeded")
+                    else:
+                        error_output = result.stderr or result.stdout
+                        print(f"  ❌ Backend build failed:")
+                        print(error_output[:500] if error_output else "No error details available")
+                        all_valid = False
+                except FileNotFoundError:
+                    print("  ⚠️  dotnet CLI not found, skipping backend validation")
+                except subprocess.TimeoutExpired:
+                    print("  ⚠️  Backend build timeout, skipping validation")
+                except Exception as e:
+                    print(f"  ⚠️  Backend validation error: {e}")
+            elif csproj_files:
+                print("  ℹ️  Backend .csproj found but no .sln, skipping validation")
+        
+        # Validate frontend build
+        frontend_dir = output_dir / "frontend"
+        package_json = frontend_dir / "package.json"
+        if package_json.exists():
+            print("\n🔨 Validating frontend build...")
+            try:
+                # Check if node_modules exists first
+                node_modules = frontend_dir / "node_modules"
+                if not node_modules.exists():
+                    print("  ⚠️  node_modules not found, skipping frontend validation")
+                else:
+                    # Use npm.cmd on Windows
+                    npm_cmd = "npm.cmd" if is_windows else "npm"
+                    result = subprocess.run(
+                        [npm_cmd, "run", "build"],
+                        cwd=str(frontend_dir),
+                        capture_output=True,
+                        text=True,                        
+                        encoding='utf-8',
+                        errors='replace',                        
+                        timeout=120,
+                        shell=is_windows  # Use shell on Windows
+                    )
+                    if result.returncode == 0:
+                        print("  ✅ Frontend build succeeded")
+                    else:
+                        error_output = result.stderr or result.stdout
+                        print(f"  ❌ Frontend build failed:")
+                        print(error_output[:500] if error_output else "No error details available")
+                        all_valid = False
+            except FileNotFoundError:
+                print("  ⚠️  npm not found, skipping frontend validation")
+            except subprocess.TimeoutExpired:
+                print("  ⚠️  Frontend build timeout, skipping validation")
+            except Exception as e:
+                print(f"  ⚠️  Frontend validation error: {e}")
+        
+        return all_valid
+    
+    async def _validate_and_fix_backend(self, output_dir: Path, backend_output: str, original_task: str, iter_id: str, max_retries: int = 2, iteration: int = 1) -> tuple[str, bool]:
+        """
+        Validate backend build and give agent chance to fix errors.
+        
+        Returns:
+            tuple: (final_backend_output, build_success)
+        """
+        is_windows = platform.system() == "Windows"
+        backend_dir = output_dir / "backend"
+        
+        for attempt in range(max_retries + 1):
+            sln_files = list(backend_dir.glob("*.sln"))
+            if not sln_files:
+                print("  ℹ️  No .sln file found, skipping backend build validation")
+                return backend_output, True
+            
+            print(f"\n🔨 Validating backend build (attempt {attempt + 1}/{max_retries + 1})...")
+            try:
+                result = subprocess.run(
+                    ["dotnet", "build", sln_files[0].name, "--nologo"],
+                    cwd=str(backend_dir),
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    timeout=60,
+                    shell=is_windows
+                )
+                
+                if result.returncode == 0:
+                    print("  ✅ Backend build succeeded")
+                    return backend_output, True
+                
+                # Build failed
+                error_output = result.stderr or result.stdout
+                print(f"  ❌ Backend build failed:")
+                print(error_output[:500] if error_output else "No error details available")
+                
+                if attempt < max_retries:
+                    print(f"\n🔧 Asking backend agent to fix build errors...")
+                    fix_task = f"""The backend build failed with these errors:
+
+```
+{error_output[:1000]}
+```
+
+CRITICAL FIXES NEEDED:
+1. Check all using directives (e.g., add 'using System.Net.Sockets;' if using SocketException)
+2. Verify all NuGet packages are in the .csproj file
+3. Ensure method signatures match (e.g., pass CancellationToken through the call chain)
+4. Use correct extension method names (e.g., AddValidatorsFromAssemblyContaining<T>)
+
+Original task: {original_task}
+
+Fix the errors and regenerate ALL files using FILE: format."""
+                    
+                    fix_result = await self._run_agent('backend', fix_task, iteration=iteration, attempt=attempt + 1)
+                    backend_output = fix_result['content']
+                    
+                    # Save the fixed version
+                    self._save_artifacts('Backend', backend_output, output_dir, f"{iter_id}_fix{attempt + 1}")
+                else:
+                    print("  ⚠️  Max build fix attempts reached")
+                    return backend_output, False
+                    
+            except FileNotFoundError:
+                print("  ⚠️  dotnet CLI not found, skipping validation")
+                return backend_output, True
+            except subprocess.TimeoutExpired:
+                print("  ⚠️  Backend build timeout")
+                return backend_output, False
+            except Exception as e:
+                print(f"  ⚠️  Build validation error: {e}")
+                return backend_output, False
+        
+        return backend_output, False
+    
+    async def _validate_and_fix_frontend(self, output_dir: Path, frontend_output: str, original_task: str, iter_id: str, max_retries: int = 2, iteration: int = 1) -> tuple[str, bool]:
+        """
+        Validate frontend build and give agent chance to fix errors.
+        
+        Returns:
+            tuple: (final_frontend_output, build_success)
+        """
+        is_windows = platform.system() == "Windows"
+        frontend_dir = output_dir / "frontend"
+        package_json = frontend_dir / "package.json"
+        
+        if not package_json.exists():
+            print("  ℹ️  No package.json found, skipping frontend build validation")
+            return frontend_output, True
+        
+        node_modules = frontend_dir / "node_modules"
+        if not node_modules.exists():
+            print("  ⚠️  node_modules not found, skipping frontend validation")
+            return frontend_output, True
+        
+        for attempt in range(max_retries + 1):
+            print(f"\n🔨 Validating frontend build (attempt {attempt + 1}/{max_retries + 1})...")
+            try:
+                npm_cmd = "npm.cmd" if is_windows else "npm"
+                result = subprocess.run(
+                    [npm_cmd, "run", "build"],
+                    cwd=str(frontend_dir),
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    timeout=120,
+                    shell=is_windows
+                )
+                
+                if result.returncode == 0:
+                    print("  ✅ Frontend build succeeded")
+                    return frontend_output, True
+                
+                # Build failed
+                error_output = result.stderr or result.stdout
+                print(f"  ❌ Frontend build failed:")
+                print(error_output[:500] if error_output else "No error details available")
+                
+                if attempt < max_retries:
+                    print(f"\n🔧 Asking frontend agent to fix build errors...")
+                    fix_task = f"""The frontend build failed with these errors:
+
+```
+{error_output[:1000]}
+```
+
+CRITICAL FIXES NEEDED:
+1. Prefix unused parameters with _ (e.g., '_from' instead of 'from' in router guards)
+2. Ensure tsconfig.json includes "types": ["vite/client"]
+3. Check all imports and type definitions
+4. Fix any TypeScript errors
+
+Original task: {original_task}
+
+Fix the errors and regenerate ALL files using FILE: format."""
+                    
+                    fix_result = await self._run_agent('frontend', fix_task, iteration=iteration, attempt=attempt + 1)
+                    frontend_output = fix_result['content']
+                    
+                    # Save the fixed version
+                    self._save_artifacts('Frontend', frontend_output, output_dir, f"{iter_id}_fix{attempt + 1}")
+                else:
+                    print("  ⚠️  Max build fix attempts reached")
+                    return frontend_output, False
+                    
+            except FileNotFoundError:
+                print("  ⚠️  npm not found, skipping validation")
+                return frontend_output, True
+            except subprocess.TimeoutExpired:
+                print("  ⚠️  Frontend build timeout")
+                return frontend_output, False
+            except Exception as e:
+                print(f"  ⚠️  Build validation error: {e}")
+                return frontend_output, False
+        
+        return frontend_output, False
     
     def _save_chat_history(
         self, 
@@ -227,6 +503,9 @@ class IterativeWorkflow:
         else:
             output_dir = self.outputs_dir
         
+        # Initialize cost tracker for this run
+        self.cost_tracker = CostTracker(project_dir=output_dir if project_name else None)
+        
         print(f"\n{'=' * 60}")
         print(f"🚀 Starting Iterative Workflow")
         print(f"   Run ID: {run_id}")
@@ -251,7 +530,7 @@ class IterativeWorkflow:
                     # Designer → Backend → Frontend → QA
                     
                     # 1. Designer
-                    designer_result = await self._run_agent('designer', requirement)
+                    designer_result = await self._run_agent('designer', requirement, iteration=iteration)
                     all_messages.extend(designer_result['messages'])
                     designer_output = designer_result['content']
                     
@@ -260,21 +539,31 @@ class IterativeWorkflow:
                     
                     # 2. Backend (sees Designer specs)
                     backend_task = f"{requirement}\n\n=== Designer Specifications ===\n{designer_output}"
-                    backend_result = await self._run_agent('backend', backend_task)
+                    backend_result = await self._run_agent('backend', backend_task, iteration=iteration)
                     all_messages.extend(backend_result['messages'])
                     backend_output = backend_result['content']
                     
                     print(f"\n💾 Saving Backend artifacts...")
                     self._save_artifacts('Backend', backend_output, output_dir, iter_id)
                     
+                    # Validate backend build and let agent fix if needed
+                    backend_output, backend_build_ok = await self._validate_and_fix_backend(
+                        output_dir, backend_output, backend_task, iter_id, iteration=iteration
+                    )
+                    
                     # 3. Frontend (sees Designer specs, NOT Backend code to prevent confusion)
                     frontend_task = f"{requirement}\n\n=== Designer Specifications ===\n{designer_output}\n\nImplement the Vue 3 frontend. Backend API is being implemented separately."
-                    frontend_result = await self._run_agent('frontend', frontend_task)
+                    frontend_result = await self._run_agent('frontend', frontend_task, iteration=iteration)
                     all_messages.extend(frontend_result['messages'])
                     frontend_output = frontend_result['content']
                     
                     print(f"\n💾 Saving Frontend artifacts...")
                     self._save_artifacts('Frontend', frontend_output, output_dir, iter_id)
+                    
+                    # Validate frontend build and let agent fix if needed
+                    frontend_output, frontend_build_ok = await self._validate_and_fix_frontend(
+                        output_dir, frontend_output, frontend_task, iter_id, iteration=iteration
+                    )
                     
                     # 4. QA (reviews everything)
                     qa_task = f"""Review all outputs and create test plans:
@@ -293,7 +582,7 @@ class IterativeWorkflow:
 
 Create comprehensive test files using FILE: format."""
                     
-                    qa_result = await self._run_agent('qa', qa_task)
+                    qa_result = await self._run_agent('qa', qa_task, iteration=iteration)
                     all_messages.extend(qa_result['messages'])
                     qa_output = qa_result['content']
                     
@@ -319,29 +608,50 @@ Create comprehensive test files using FILE: format."""
                     # Run fixes
                     if feedback.fix_backend:
                         print(f"\n🔧 Backend fixing issues...")
-                        fix_result = await self._run_agent('backend', f"Fix these issues:\n\n{qa_output}")
+                        fix_result = await self._run_agent('backend', f"Fix these issues:\n\n{qa_output}", iteration=iteration)
                         all_messages.extend(fix_result['messages'])
                         backend_output = fix_result['content']
                         self._save_artifacts('Backend', backend_output, output_dir, iter_id)
+                        
+                        # Validate backend build after QA fixes
+                        backend_output, _ = await self._validate_and_fix_backend(
+                            output_dir, backend_output, f"Fix QA issues:\n{qa_output}", iter_id, iteration=iteration
+                        )
                     
                     if feedback.fix_frontend:
                         print(f"\n🔧 Frontend fixing issues...")
-                        fix_result = await self._run_agent('frontend', f"Fix these issues:\n\n{qa_output}")
+                        fix_result = await self._run_agent('frontend', f"Fix these issues:\n\n{qa_output}", iteration=iteration)
                         all_messages.extend(fix_result['messages'])
                         frontend_output = fix_result['content']
                         self._save_artifacts('Frontend', frontend_output, output_dir, iter_id)
+                        
+                        # Validate frontend build after QA fixes
+                        frontend_output, _ = await self._validate_and_fix_frontend(
+                            output_dir, frontend_output, f"Fix QA issues:\n{qa_output}", iter_id, iteration=iteration
+                        )
                     
                     # QA re-test
                     print(f"\n🔍 QA re-testing...")
-                    qa_result = await self._run_agent('qa', "Re-test the fixes. Use FILE: format for test files.")
+                    qa_result = await self._run_agent('qa', "Re-test the fixes. Use FILE: format for test files.", iteration=iteration)
                     all_messages.extend(qa_result['messages'])
                     qa_output = qa_result['content']
                     self._save_artifacts('QA', qa_output, output_dir, iter_id)
                 
-                # Git commit after each iteration
+                # Validate builds before committing
+                build_valid = self._validate_builds(output_dir)
+                
+                # Git commit after each iteration (only if builds pass)
                 if git_manager:
-                    commit_msg = task_description or f"Iteration {iteration}"
-                    git_manager.commit(commit_msg)
+                    if build_valid:
+                        commit_msg = task_description or f"Iteration {iteration}"
+                        git_manager.commit(commit_msg)
+                        # Tag the iteration for rollback
+                        tag_desc = "All tests passed" if not qa_issue else "With fixes applied"
+                        git_manager.tag_iteration(iteration, run_id, tag_desc)
+                        print("  ✅ Changes committed to Git")
+                        print(f"  🏷️  Tagged as: iter{iteration}_{run_id}")
+                    else:
+                        print("  ⚠️  Skipping Git commit due to build failures")
             
             # Save chat history
             chat_file = self._save_chat_history(all_messages, output_dir, run_id)
@@ -351,6 +661,20 @@ Create comprehensive test files using FILE: format."""
                 self.project_manager.refresh_project(project_name)
                 if task_description:
                     self.project_manager.add_task_to_history(project_name, task_description, run_id)
+            
+            # Generate README.md for the project
+            if project_name:
+                from app.utils.readme_generator import ReadmeGenerator
+                print(f"\n📝 Generating README.md...")
+                readme_gen = ReadmeGenerator(output_dir, project_name)
+                readme_path = readme_gen.save(requirement)
+                print(f"   ✅ README.md created: {readme_path.name}")
+            
+            # Print and save cost summary
+            if self.cost_tracker:
+                self.cost_tracker.print_summary()
+                if project_name:
+                    self.cost_tracker.save_report(f"cost_report_{run_id}.json")
             
             print(f"\n{'=' * 60}")
             print(f"✅ Workflow completed!")

@@ -16,8 +16,7 @@ def create_designer_agent(work_dir: str = "./outputs/design") -> AssistantAgent:
     Returns:
         Configured AssistantAgent for design tasks
     """
-    # Ensure work directory exists
-    Path(work_dir).mkdir(parents=True, exist_ok=True)
+    # Work directory will be created on-demand when saving artifacts
     
     # Load system prompt
     system_message = load_prompt("designer")

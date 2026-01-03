@@ -68,9 +68,14 @@ You may receive:
 
 Deliverable **must start with:**
 “A Vue 3 Single Page Application for [feature name]...”
+**CRITICAL PATH RULES:**
 
-**Never start with:**
-❌ Descriptions of backend APIs or .NET project
+- ALL file paths must be relative to the frontend root (NOT prefixed with "frontend/")
+- Correct: `FILE: src/views/Login.vue`
+- WRONG: `FILE: frontend/src/views/Login.vue`
+- Files are already saved to the frontend/ directory - do NOT include it in paths
+  **Never start with:**
+  ❌ Descriptions of backend APIs or .NET project
 
 **Respond only with Vue 3 / TypeScript; C# or .NET code is reference only.**
 
@@ -87,12 +92,30 @@ Organize your output as follows:
 
 ### npm Packages
 
+- **CRITICAL:** Always include complete package.json with scripts section
 - List all dependencies in:
 
 ```json
 {
+  "name": "project-name",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest"
+  },
   "dependencies": { ... },
-  "devDependencies": { ... }
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.0",
+    "@vue/test-utils": "^2.4.6",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^1.6.0",
+    "vue-tsc": "^2.1.10",
+    "jsdom": "^25.0.1"
+  }
 }
 ```
 
@@ -102,11 +125,168 @@ Organize your output as follows:
   - **@vitejs/plugin-vue: ^5.2.0** (requires Vite 5.x or 6.x)
   - **Vitest: ^1.6.0** (compatible with Vite 5.x)
   - **@vue/test-utils: ^2.4.6**
+  - **vue-tsc: ^2.1.10** (TypeScript type-checker for Vue - REQUIRED for build script)
+  - **TypeScript: ~5.6.3**
   - These versions are tested and work together without conflicts
 
 ### Component Tree
 
 - Page and component hierarchy (concise)
+
+### Required Configuration Files
+
+**CRITICAL:** Always include these configuration files:
+
+1. **tsconfig.json** - TypeScript configuration (REQUIRED for vue-tsc)
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "preserve",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
+```
+
+2. **tsconfig.node.json** - Node environment TypeScript config
+
+```json
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": ["vite.config.ts"]
+}
+```
+
+3. **vite.config.ts** - Vite configuration
+
+```typescript
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
+import { fileURLToPath, URL } from "node:url";
+
+export default defineConfig({
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
+});
+```
+
+4. **index.html** - Entry point HTML file (REQUIRED - Vite's entry point)
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>App Title</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+```
+
+5. **Dockerfile** - Multi-stage build with Nginx (REQUIRED)
+
+```dockerfile
+# Build stage
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm ci
+
+# Copy source code and build
+COPY . .
+RUN npm run build
+
+# Production stage
+FROM nginx:alpine AS production
+
+# Copy built files
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+6. **.dockerignore** - Exclude node_modules and build artifacts
+
+```
+node_modules/
+dist/
+.env
+.env.local
+*.log
+npm-debug.log*
+.DS_Store
+```
+
+7. **nginx.conf** - Nginx configuration for SPA routing
+
+```nginx
+server {
+    listen 80;
+    server_name localhost;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Enable gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+    # SPA routing - serve index.html for all routes
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cache static assets
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+}
+```
 
 ### Code Artifacts
 
@@ -170,6 +350,10 @@ FILE: [path/filename]
 
 ## Project Structure
 outputs/frontend/
+index.html (REQUIRED - Vite entry point)
+Dockerfile (REQUIRED - Multi-stage build)
+.dockerignore (REQUIRED - Exclude node_modules)
+nginx.conf (REQUIRED - Production web server config)
 src/views/
 src/components/
 src/services/
@@ -179,6 +363,9 @@ src/types/
 .env.example
 README.md
 package.json
+tsconfig.json
+tsconfig.node.json
+vite.config.ts
 
 ## Coding Standards
 - Use Composition API `<script setup>`
@@ -189,6 +376,14 @@ package.json
 - Semantic HTML and accessibility best practices
 - Avoid deeply nested or god components
 - No hardcoded URLs or inline styles
+- Router guards: prefix unused params with _ (e.g., `_from` instead of `from`) to avoid noUnusedParameters errors
+- Type all props
+- Clear event names
+- Robust async error handling
+- Semantic HTML and accessibility best practices
+- Avoid deeply nested or god components
+- No hardcoded URLs or inline styles
+- Router guards: prefix unused params with _ (e.g., `_from` instead of `from`) to avoid TypeScript errors
 
 ## Example Artifacts
 (see above for sample component, API client, package.json snippets)

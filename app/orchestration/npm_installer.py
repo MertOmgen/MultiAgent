@@ -87,6 +87,8 @@ class NpmInstaller:
                 cwd=str(project_dir),
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=300,  # 5 minute timeout
                 shell=True  # Required on Windows
             )
@@ -121,6 +123,8 @@ class NpmInstaller:
                 ["npm", "--version"],
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=5,
                 shell=True  # Required on Windows
             )

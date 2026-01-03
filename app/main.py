@@ -58,6 +58,85 @@ def list_projects():
         print("   Create one with: python -m app.main --project MyProject \"requirement\"")
 
 
+def list_rollback_points(project_name: str):
+    """List available rollback points for a project."""
+    from app.orchestration.git_manager import GitManager
+    
+    pm = ProjectManager("./outputs")
+    projects = pm.list_projects()
+    
+    if project_name not in projects:
+        print(f"\n⚠️  Project '{project_name}' not found.")
+        return 1
+    
+    project = pm.get_or_create_project(project_name)
+    git_manager = GitManager(project.project_dir)
+    
+    if not git_manager.check_available():
+        print("\n⚠️  Git is not available")
+        return 1
+    
+    tags = git_manager.get_tags()
+    
+    if not tags:
+        print(f"\n📌 No rollback points found for project '{project_name}'")
+        return 0
+    
+    print(f"\n📌 Rollback Points for '{project_name}':")
+    print("=" * 60)
+    
+    # Group by iteration
+    iterations = {}
+    for tag, message in tags:
+        if tag.startswith("iter"):
+            iter_num = tag.split("_")[0].replace("iter", "")
+            if iter_num not in iterations:
+                iterations[iter_num] = []
+            iterations[iter_num].append((tag, message))
+    
+    for iter_num in sorted(iterations.keys(), key=int):
+        print(f"\nIteration {iter_num}:")
+        for tag, message in iterations[iter_num]:
+            print(f"  🏷️  {tag:30s} - {message}")
+    
+    print("\n" + "=" * 60)
+    print("\nTo rollback: python app/main.py --rollback <project> --to-iteration <N>")
+    return 0
+
+
+def rollback_project(project_name: str, iteration: int):
+    """Rollback a project to a specific iteration."""
+    from app.orchestration.git_manager import GitManager
+    
+    pm = ProjectManager("./outputs")
+    projects = pm.list_projects()
+    
+    if project_name not in projects:
+        print(f"\n⚠️  Project '{project_name}' not found.")
+        return 1
+    
+    project = pm.get_or_create_project(project_name)
+    git_manager = GitManager(project.project_dir)
+    
+    if not git_manager.check_available():
+        print("\n⚠️  Git is not available")
+        return 1
+    
+    print(f"\n🔄 Rolling back '{project_name}' to iteration {iteration}...")
+    
+    success = git_manager.rollback_to_iteration(iteration)
+    
+    if success:
+        print(f"\n✅ Successfully rolled back to iteration {iteration}")
+        print(f"\n📝 Project state restored. You can now:")
+        print(f"  1. Run a new iteration: python app/main.py -p {project_name} -t 'Continue development'")
+        print(f"  2. Review changes: cd outputs/{project_name} && git log")
+        return 0
+    else:
+        print(f"\n❌ Rollback failed")
+        return 1
+
+
 def get_default_requirement() -> str:
     """Get default example requirement."""
     return """
@@ -114,6 +193,23 @@ Examples:
         default=3,
         help="Maximum QA feedback iterations (default: 3)"
     )
+    parser.add_argument(
+        "--list-rollback-points",
+        action="store_true",
+        help="List available rollback points for a project (use with --project)"
+    )
+    parser.add_argument(
+        "--rollback",
+        type=str,
+        metavar="PROJECT",
+        help="Rollback a project to a previous iteration"
+    )
+    parser.add_argument(
+        "--to-iteration",
+        type=int,
+        metavar="N",
+        help="Target iteration number for rollback"
+    )
     
     args = parser.parse_args()
     
@@ -122,6 +218,22 @@ Examples:
         print_header()
         list_projects()
         return 0
+    
+    # Handle --list-rollback-points
+    if args.list_rollback_points:
+        if not args.project:
+            print("\n⚠️  --list-rollback-points requires --project")
+            return 1
+        print_header()
+        return list_rollback_points(args.project)
+    
+    # Handle --rollback
+    if args.rollback:
+        if not args.to_iteration:
+            print("\n⚠️  --rollback requires --to-iteration")
+            return 1
+        print_header()
+        return rollback_project(args.rollback, args.to_iteration)
     
     # Determine requirement
     if args.project and args.task:
