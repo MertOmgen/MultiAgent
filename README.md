@@ -1,6 +1,6 @@
-# MultiAgent (Local 4‑Agent Software Development with AutoGen)
+# MultiAgent (Local 5‑Agent Software Development with AutoGen)
 
-This repository aims to build a **local-first**, **multi-agent** software development workflow where **4 AI agents** (Software Designer, Backend, Frontend, QA) collaborate to produce software through **design → implementation → testing**.
+This repository aims to build a **local-first**, **multi-agent** software development workflow where **5 AI agents** (Manager, Software Designer, Backend, Frontend, QA) collaborate to produce software through **strategic planning → design → implementation → testing**.
 
 ## 1) Purpose
 
@@ -29,23 +29,36 @@ Proposed architecture:
 
 - **Agents:** Each agent has a distinct role, behavior, and output format.
 - **Shared conversation channel:** Where agents exchange work products.
-- **Manager/Orchestrator:** Breaks down tasks, controls order, and enforces quality gates.
+- **Manager:** Provides strategic planning, architectural oversight, and coordinates other agents.
 
 Typical flow:
 
 1. You provide the goal/requirements.
-2. The Orchestrator splits the work: **Design → Backend → Frontend → QA**
-3. **Designer:** architecture + API contract + backlog
-4. **Backend:** .NET API skeleton + business logic + DB layer
-5. **Frontend:** Vue 3 screens + API integration
+2. **Manager** analyzes requirements and creates strategic plan with directives
+3. **Designer:** architecture + API contract + backlog (following Manager's directives)
+4. **Backend:** .NET 8 API skeleton + business logic + DB layer (following best practices)
+5. **Frontend:** Vue 3 screens + API integration (following UI/UX guidelines)
 6. **QA:** test plan + automation suggestions + bug/improvement report
-7. If needed: feedback loop based on QA findings (Backend/Frontend fixes)
+7. If needed: **Manager** analyzes errors and directs fixes → agents fix → QA re-test
 
 ---
 
 ## 4) Agent Roles & Responsibilities
 
-### 4.1 Software Designer
+### 4.1 Manager Agent (NEW!)
+
+- **Strategic Planning:** Break down requirements into development phases and roadmaps
+- **Architecture Oversight:** Define system architecture and ensure consistency across components
+- **Best Practices Research:** Recommend industry standards for .NET 8, Vue 3, PostgreSQL
+- **Error Management:** Analyze build errors, test failures, and runtime issues
+- **Agent Direction:** Provide clear, actionable directives to Designer, Backend, Frontend, QA
+- **Quality Control:** Ensure security, performance, maintainability standards are met
+- **Risk Assessment:** Identify technical risks and create mitigation strategies
+- **Enhancement Planning:** Think about new modules and features to add value
+- **Output:** Strategic plans, architectural guidance, error analyses (Markdown documents)
+
+### 4.2 Software Designer
+
 - Requirements analysis (functional / non-functional)
 - User stories + acceptance criteria
 - High-level architecture (modules, data flow)
@@ -53,6 +66,7 @@ Typical flow:
 - Risks/assumptions and a clear to-do list
 
 ### 4.2 Backend Agent (.NET/C#)
+
 - API implementation (minimal but runnable skeleton)
 - Data model + Postgres integration
 - Error handling, logging, auth approach (optional/iterative)
@@ -60,12 +74,14 @@ Typical flow:
 - Basic unit/integration test starting point (optional)
 
 ### 4.3 Frontend Agent (Vue 3)
+
 - Page/component tree
 - API integration and state approach
 - Loading/error/empty states
 - A lightweight UI standard (naming, foldering, reusable components)
 
 ### 4.4 QA Agent
+
 - Test strategy: unit + integration + e2e + regression
 - Test scenarios for critical flows
 - Automation suggestions:
@@ -90,14 +106,16 @@ Each agent should produce outputs using a consistent template:
 
 ## 6) Local LLM: Ollama + llama3.1
 
-1) Install Ollama: https://ollama.com/
+1. Install Ollama: https://ollama.com/
 
-2) Pull the model:
+2. Pull the model:
+
 ```bash
 ollama pull llama3.1
 ```
 
-3) Start the service:
+3. Start the service:
+
 ```bash
 ollama serve
 ```
@@ -120,6 +138,7 @@ outputs/
 ```
 
 Examples:
+
 - `outputs/design/`: `architecture.md`, `api_contract.md`, `backlog.md`
 - `outputs/backend/`: .NET solution, controllers/services, SQL/migration notes
 - `outputs/frontend/`: Vue 3 pages/components, API client drafts
@@ -172,4 +191,5 @@ MultiAgent/
 6. Later evolve into: parallel work (Backend/Frontend) + integration + QA gate.
 
 ---
+
 This README is a “roadmap + working agreement”. Example flows and config files will be refined as the repository evolves.

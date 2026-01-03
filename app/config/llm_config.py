@@ -15,10 +15,13 @@ load_dotenv()
 
 # Agent-specific temperature settings
 AGENT_TEMPERATURES = {
-    "designer": 0.7,  # More creative for architecture decisions
-    "backend": 0.5,   # Balanced for code implementation
-    "frontend": 0.5,  # Balanced for code implementation
-    "qa": 0.3,        # More deterministic for testing
+    "manager": 0.8,      # More creative for strategic planning and architecture
+    "error_agent": 0.3,  # Precise and methodical for debugging
+    "devops_agent": 0.3, # Precise for infrastructure and container configuration
+    "designer": 0.7,     # More creative for architecture decisions
+    "backend": 0.5,      # Balanced for code implementation
+    "frontend": 0.5,     # Balanced for code implementation
+    "qa": 0.3,           # More deterministic for testing
 }
 
 

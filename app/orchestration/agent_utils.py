@@ -11,6 +11,9 @@ from typing import Dict, Optional, Tuple
 
 # Standard agent directories
 AGENT_DIRS: Dict[str, str] = {
+    "Manager": "manager",
+    "ErrorAgent": "error_agent",
+    "DevOps": "devops",
     "Designer": "design",
     "Backend": "backend",
     "Frontend": "frontend",
@@ -19,10 +22,16 @@ AGENT_DIRS: Dict[str, str] = {
 
 # Agent name aliases to standard names
 AGENT_ALIASES: Dict[str, str] = {
+    "manager_agent": "Manager",
+    "error_agent": "ErrorAgent",
+    "devops_agent": "DevOps",
     "designer_agent": "Designer",
     "backend_agent": "Backend",
     "frontend_agent": "Frontend",
     "qa_agent": "QA",
+    "manager": "Manager",
+    "error": "ErrorAgent",
+    "devops": "DevOps",
     "designer": "Designer",
     "backend": "Backend",
     "frontend": "Frontend",
@@ -31,6 +40,9 @@ AGENT_ALIASES: Dict[str, str] = {
 
 # File extensions each agent should produce
 AGENT_FILE_EXTENSIONS: Dict[str, Tuple[str, ...]] = {
+    "Manager": (".md", ".json"),
+    "ErrorAgent": (".md", ".json", ".log"),  # Error analysis, KB entries, logs
+    "DevOps": (".yml", ".yaml", ".dockerfile", ".sh", ".env", ".md", ".sql"),  # Docker configs, scripts, docs
     "Designer": (".md", ".json"),
     "Backend": (".cs", ".csproj", ".sln", ".json"),
     "Frontend": (".vue", ".ts", ".js", ".tsx", ".jsx", ".json", ".css", ".scss"),
@@ -39,6 +51,9 @@ AGENT_FILE_EXTENSIONS: Dict[str, Tuple[str, ...]] = {
 
 # File extensions each agent should NOT produce (role violations)
 AGENT_FORBIDDEN_EXTENSIONS: Dict[str, Tuple[str, ...]] = {
+    "Manager": (".cs", ".vue", ".ts", ".js", ".csproj"),  # Manager provides strategic guidance, not code
+    "DevOps": (".cs", ".vue", ".ts", ".js", ".tsx", ".jsx"),  # DevOps creates infrastructure, not application code
+    "ErrorAgent": (".cs", ".vue", ".ts", ".js", ".csproj", ".sln"),  # ErrorAgent analyzes errors, doesn't write code
     "Designer": (".cs", ".vue", ".ts", ".js"),  # Designer shouldn't write code
     "Backend": (".vue", ".jsx", ".tsx"),  # Backend shouldn't write frontend
     "Frontend": (".cs", ".csproj", ".sln"),  # Frontend shouldn't write backend
@@ -56,6 +71,11 @@ def standardize_agent_name(name: str) -> Optional[str]:
     Returns:
         Standard name (e.g., 'Backend') or None if unknown
     """
+    # First check if it's already a standard name (exact match)
+    if name in AGENT_DIRS:
+        return name
+    
+    # Then check aliases (case-insensitive)
     return AGENT_ALIASES.get(name.lower(), name.title() if name.title() in AGENT_DIRS else None)
 
 
